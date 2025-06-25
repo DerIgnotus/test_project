@@ -1,5 +1,6 @@
-use bevy::prelude::MonitorSelection::Current;
+use bevy::prelude::MonitorSelection::Primary;
 use bevy::{
+    input::common_conditions::input_toggle_active,
     prelude::*,
     window::{PresentMode, WindowTheme},
 };
@@ -19,7 +20,7 @@ fn main() {
         .add_plugins((DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Chess in Rust".into(),
-                position: WindowPosition::Centered(Current),
+                position: WindowPosition::Centered(Primary),
                 resolution: (900.0, 900.0).into(),
                 present_mode: PresentMode::AutoVsync,
                 fit_canvas_to_parent: true,
@@ -31,7 +32,9 @@ fn main() {
         .add_plugins(EguiPlugin {
             enable_multipass_for_primary_context: true,
         })
-        .add_plugins(WorldInspectorPlugin::new())
+        .add_plugins(
+            WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::Escape)),
+        )
         .add_plugins(PiecesPlugin)
         .add_plugins(GamePlugin)
         .add_systems(Startup, set_up_bevy)

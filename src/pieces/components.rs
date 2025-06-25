@@ -3,12 +3,12 @@ use std::fmt;
 
 // reflect stuff so it shows up in the inspector
 
-#[derive(Component, Reflect, Debug)]
+#[derive(Component, Reflect, Debug, Clone)]
 #[reflect(Component)]
 pub struct ChessPiece {
     name: String,
     pub piece: PieceType,
-    color: PieceColor,
+    pub color: PieceColor,
     pub position: (u8, u8),
     value: u8,
 }
