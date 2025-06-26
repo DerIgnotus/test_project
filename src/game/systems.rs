@@ -132,206 +132,15 @@ pub fn move_piece(
 }
 
 fn can_move_to_tile(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPiece>) -> bool {
-    // Helper to check if a tile is occupied by any piece
     let is_occupied = |pos: (u8, u8)| pieces.iter().any(|p| p.position == pos);
 
     match piece.piece {
-        PieceType::Pawn => {
-            let dy = to_tile.1 as i8 - piece.position.1 as i8;
-            let dx = (to_tile.0 as i8 - piece.position.0 as i8).abs();
-
-            match piece.color {
-                PieceColor::White => {
-                    // White pawns move up (increasing y)
-                    if piece.position.1 == 2 && dy == 2 && dx == 0 {
-                        // First move, two squares forward
-                        let intermediate = (piece.position.0, piece.position.1 + 1);
-                        if !is_occupied(intermediate) && !is_occupied(to_tile) {
-                            return true;
-                        }
-                    } else if dy == 1 && dx == 0 {
-                        // Normal move, one square forward
-                        if !is_occupied(to_tile) {
-                            return true;
-                        }
-                    } else if dy == 1 && dx == 1 {
-                        // Capture diagonally
-                        if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
-                            if target.color != piece.color {
-                                return true;
-                            }
-                        }
-                    }
-                }
-                PieceColor::Black => {
-                    // Black pawns move down (decreasing y)
-                    if piece.position.1 == 7 && dy == -2 && dx == 0 {
-                        // First move, two squares forward
-                        let intermediate = (piece.position.0, piece.position.1 - 1);
-                        if !is_occupied(intermediate) && !is_occupied(to_tile) {
-                            return true;
-                        }
-                    } else if dy == -1 && dx == 0 {
-                        // Normal move, one square forward
-                        if !is_occupied(to_tile) {
-                            return true;
-                        }
-                    } else if dy == -1 && dx == 1 {
-                        // Capture diagonally
-                        if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
-                            if target.color != piece.color {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-            false
-        }
-        PieceType::Rook => {
-            // Rooks move in straight lines
-            if piece.position.0 == to_tile.0 {
-                // Vertical move
-                let range = if piece.position.1 < to_tile.1 {
-                    (piece.position.1 + 1)..to_tile.1
-                } else {
-                    (to_tile.1 + 1)..piece.position.1
-                };
-                for y in range {
-                    if is_occupied((piece.position.0, y)) {
-                        return false;
-                    }
-                }
-                // Can't capture own piece
-                if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
-                    return target.color != piece.color;
-                }
-                true
-            } else if piece.position.1 == to_tile.1 {
-                // Horizontal move
-                let range = if piece.position.0 < to_tile.0 {
-                    (piece.position.0 + 1)..to_tile.0
-                } else {
-                    (to_tile.0 + 1)..piece.position.0
-                };
-                for x in range {
-                    if is_occupied((x, piece.position.1)) {
-                        return false;
-                    }
-                }
-                if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
-                    return target.color != piece.color;
-                }
-                true
-            } else {
-                false
-            }
-        }
-        PieceType::Bishop => {
-            // Bishops move diagonally
-            let dx = to_tile.0 as i8 - piece.position.0 as i8;
-            let dy = to_tile.1 as i8 - piece.position.1 as i8;
-            if dx.abs() == dy.abs() {
-                let steps = dx.abs();
-                let x_step = if dx > 0 { 1 } else { -1 };
-                let y_step = if dy > 0 { 1 } else { -1 };
-                for i in 1..steps {
-                    let x = (piece.position.0 as i8 + i * x_step) as u8;
-                    let y = (piece.position.1 as i8 + i * y_step) as u8;
-                    if is_occupied((x, y)) {
-                        return false;
-                    }
-                }
-                if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
-                    return target.color != piece.color;
-                }
-                true
-            } else {
-                false
-            }
-        }
-        PieceType::Queen => {
-            // Queens move like rook or bishop
-            let dx = to_tile.0 as i8 - piece.position.0 as i8;
-            let dy = to_tile.1 as i8 - piece.position.1 as i8;
-            if dx.abs() == dy.abs() {
-                // Diagonal like bishop
-                let steps = dx.abs();
-                let x_step = if dx > 0 { 1 } else { -1 };
-                let y_step = if dy > 0 { 1 } else { -1 };
-                for i in 1..steps {
-                    let x = (piece.position.0 as i8 + i * x_step) as u8;
-                    let y = (piece.position.1 as i8 + i * y_step) as u8;
-                    if is_occupied((x, y)) {
-                        return false;
-                    }
-                }
-                if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
-                    return target.color != piece.color;
-                }
-                true
-            } else if piece.position.0 == to_tile.0 {
-                // Vertical like rook
-                let range = if piece.position.1 < to_tile.1 {
-                    (piece.position.1 + 1)..to_tile.1
-                } else {
-                    (to_tile.1 + 1)..piece.position.1
-                };
-                for y in range {
-                    if is_occupied((piece.position.0, y)) {
-                        return false;
-                    }
-                }
-                if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
-                    return target.color != piece.color;
-                }
-                true
-            } else if piece.position.1 == to_tile.1 {
-                // Horizontal like rook
-                let range = if piece.position.0 < to_tile.0 {
-                    (piece.position.0 + 1)..to_tile.0
-                } else {
-                    (to_tile.0 + 1)..piece.position.0
-                };
-                for x in range {
-                    if is_occupied((x, piece.position.1)) {
-                        return false;
-                    }
-                }
-                if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
-                    return target.color != piece.color;
-                }
-                true
-            } else {
-                false
-            }
-        }
-        PieceType::Knight => {
-            // Knights move in L-shape and can jump over pieces
-            let dx = (to_tile.0 as i8 - piece.position.0 as i8).abs();
-            let dy = (to_tile.1 as i8 - piece.position.1 as i8).abs();
-            if (dx == 2 && dy == 1) || (dx == 1 && dy == 2) {
-                if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
-                    return target.color != piece.color;
-                }
-                true
-            } else {
-                false
-            }
-        }
-        PieceType::King => {
-            // Kings move one square in any direction
-            let dx = (to_tile.0 as i8 - piece.position.0 as i8).abs();
-            let dy = (to_tile.1 as i8 - piece.position.1 as i8).abs();
-            if dx <= 1 && dy <= 1 {
-                if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
-                    return target.color != piece.color;
-                }
-                true
-            } else {
-                false
-            }
-        }
+        PieceType::Pawn => can_pawn_move(piece, to_tile, pieces),
+        PieceType::Rook => can_rook_move(piece, to_tile, pieces, &is_occupied),
+        PieceType::Bishop => can_bishop_move(piece, to_tile, pieces, &is_occupied),
+        PieceType::Queen => can_queen_move(piece, to_tile, pieces, &is_occupied),
+        PieceType::Knight => can_knight_move(piece, to_tile, pieces),
+        PieceType::King => can_king_move(piece, to_tile, pieces),
     }
 }
 
@@ -382,4 +191,219 @@ fn tile_to_screen_coord(tile: (u8, u8)) -> (f32, f32) {
     );
 
     screen_coord
+}
+
+// Can Moves
+
+fn can_king_move(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPiece>) -> bool {
+    let dx = (to_tile.0 as i8 - piece.position.0 as i8).abs();
+    let dy = (to_tile.1 as i8 - piece.position.1 as i8).abs();
+    if dx <= 1 && dy <= 1 {
+        if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
+            return target.color != piece.color;
+        }
+        true
+    } else {
+        false
+    }
+}
+
+fn can_knight_move(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPiece>) -> bool {
+    let dx = (to_tile.0 as i8 - piece.position.0 as i8).abs();
+    let dy = (to_tile.1 as i8 - piece.position.1 as i8).abs();
+    if (dx == 2 && dy == 1) || (dx == 1 && dy == 2) {
+        if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
+            return target.color != piece.color;
+        }
+        true
+    } else {
+        false
+    }
+}
+
+fn can_queen_move(
+    piece: &ChessPiece,
+    to_tile: (u8, u8),
+    pieces: &Vec<&ChessPiece>,
+    is_occupied: &dyn Fn((u8, u8)) -> bool,
+) -> bool {
+    let dx = to_tile.0 as i8 - piece.position.0 as i8;
+    let dy = to_tile.1 as i8 - piece.position.1 as i8;
+    if dx.abs() == dy.abs() {
+        // Diagonal like bishop
+        let steps = dx.abs();
+        let x_step = if dx > 0 { 1 } else { -1 };
+        let y_step = if dy > 0 { 1 } else { -1 };
+        for i in 1..steps {
+            let x = (piece.position.0 as i8 + i * x_step) as u8;
+            let y = (piece.position.1 as i8 + i * y_step) as u8;
+            if is_occupied((x, y)) {
+                return false;
+            }
+        }
+        if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
+            return target.color != piece.color;
+        }
+        true
+    } else if piece.position.0 == to_tile.0 {
+        // Vertical like rook
+        let range = if piece.position.1 < to_tile.1 {
+            (piece.position.1 + 1)..to_tile.1
+        } else {
+            (to_tile.1 + 1)..piece.position.1
+        };
+        for y in range {
+            if is_occupied((piece.position.0, y)) {
+                return false;
+            }
+        }
+        if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
+            return target.color != piece.color;
+        }
+        true
+    } else if piece.position.1 == to_tile.1 {
+        // Horizontal like rook
+        let range = if piece.position.0 < to_tile.0 {
+            (piece.position.0 + 1)..to_tile.0
+        } else {
+            (to_tile.0 + 1)..piece.position.0
+        };
+        for x in range {
+            if is_occupied((x, piece.position.1)) {
+                return false;
+            }
+        }
+        if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
+            return target.color != piece.color;
+        }
+        true
+    } else {
+        false
+    }
+}
+
+fn can_bishop_move(
+    piece: &ChessPiece,
+    to_tile: (u8, u8),
+    pieces: &Vec<&ChessPiece>,
+    is_occupied: &dyn Fn((u8, u8)) -> bool,
+) -> bool {
+    let dx = to_tile.0 as i8 - piece.position.0 as i8;
+    let dy = to_tile.1 as i8 - piece.position.1 as i8;
+    if dx.abs() == dy.abs() {
+        let steps = dx.abs();
+        let x_step = if dx > 0 { 1 } else { -1 };
+        let y_step = if dy > 0 { 1 } else { -1 };
+        for i in 1..steps {
+            let x = (piece.position.0 as i8 + i * x_step) as u8;
+            let y = (piece.position.1 as i8 + i * y_step) as u8;
+            if is_occupied((x, y)) {
+                return false;
+            }
+        }
+        if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
+            return target.color != piece.color;
+        }
+        true
+    } else {
+        false
+    }
+}
+
+fn can_rook_move(
+    piece: &ChessPiece,
+    to_tile: (u8, u8),
+    pieces: &Vec<&ChessPiece>,
+    is_occupied: &dyn Fn((u8, u8)) -> bool,
+) -> bool {
+    // Rooks move in straight lines
+    if piece.position.0 == to_tile.0 {
+        // Vertical move
+        let range = if piece.position.1 < to_tile.1 {
+            (piece.position.1 + 1)..to_tile.1
+        } else {
+            (to_tile.1 + 1)..piece.position.1
+        };
+        for y in range {
+            if is_occupied((piece.position.0, y)) {
+                return false;
+            }
+        }
+        // Can't capture own piece
+        if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
+            return target.color != piece.color;
+        }
+        true
+    } else if piece.position.1 == to_tile.1 {
+        // Horizontal move
+        let range = if piece.position.0 < to_tile.0 {
+            (piece.position.0 + 1)..to_tile.0
+        } else {
+            (to_tile.0 + 1)..piece.position.0
+        };
+        for x in range {
+            if is_occupied((x, piece.position.1)) {
+                return false;
+            }
+        }
+        if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
+            return target.color != piece.color;
+        }
+        true
+    } else {
+        false
+    }
+}
+
+fn can_pawn_move(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPiece>) -> bool {
+    let dy = to_tile.1 as i8 - piece.position.1 as i8;
+    let dx = (to_tile.0 as i8 - piece.position.0 as i8).abs();
+
+    match piece.color {
+        PieceColor::White => {
+            // White pawns move up (increasing y)
+            if piece.position.1 == 2 && dy == 2 && dx == 0 {
+                // First move, two squares forward
+                let intermediate = (piece.position.0, piece.position.1 + 1);
+                if !pieces.iter().any(|p| p.position == intermediate)
+                    && !pieces.iter().any(|p| p.position == to_tile)
+                {
+                    return true;
+                }
+            } else if dy == 1 && dx == 0 {
+                // Normal move, one square forward
+                if !pieces.iter().any(|p| p.position == to_tile) {
+                    return true;
+                }
+            } else if dy == 1 && dx == 1 {
+                // Capture diagonally
+                if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
+                    return target.color != piece.color;
+                }
+            }
+        }
+        PieceColor::Black => {
+            // Black pawns move down (decreasing y)
+            if piece.position.1 == 7 && dy == -2 && dx == 0 {
+                // First move, two squares forward
+                let intermediate = (piece.position.0, piece.position.1 - 1);
+                if !pieces.iter().any(|p| p.position == intermediate)
+                    && !pieces.iter().any(|p| p.position == to_tile)
+                {
+                    return true;
+                }
+            } else if dy == -1 && dx == 0 {
+                // Normal move, one square forward
+                if !pieces.iter().any(|p| p.position == to_tile) {
+                    return true;
+                }
+            } else if dy == -1 && dx == 1 {
+                // Capture diagonally
+                if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
+                    return target.color != piece.color;
+                }
+            }
+        }
+    }
+    false
 }
