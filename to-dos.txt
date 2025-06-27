@@ -4,10 +4,10 @@ To-Dos:
     - for black pieces aswell (Check)
     - check if can move there (Check)
     - check if it's blocked by another piece (Check)
-    - check if it would put the king in check
+    - check if it would put the king in check (Check)
 
 - capture a piece:
-    -> check if enemy piece
-    -> move function
-    -> move there
-    -> delete enemy entity
+    -> check if enemy piece (Check)
+    -> move function (Check)
+    -> move there (Check)
+    -> delete enemy entity (Check)

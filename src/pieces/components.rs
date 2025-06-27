@@ -13,7 +13,7 @@ pub struct ChessPiece {
     value: u8,
 }
 
-#[derive(Reflect, Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Reflect, Clone, Debug, PartialEq, Eq, Default, Copy)]
 pub enum PieceType {
     #[default]
     Pawn,
@@ -24,7 +24,7 @@ pub enum PieceType {
     King,
 }
 
-#[derive(Reflect, Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Reflect, Clone, Debug, PartialEq, Eq, Default, Copy)]
 pub enum PieceColor {
     #[default]
     White,

@@ -84,31 +84,175 @@ pub fn move_piece(
         Query<&mut ChessPiece>,
         Query<(Entity, &ChessPiece, &mut Transform)>,
     )>,
+    mut commands: Commands,
 ) {
     for MovePiece { piece, from, to } in events.read() {
         // checks whether the second selection is a piece or a tile
         // second selection is a piece
-        if let Some((other_entity, _, _)) =
+        let pieces: Vec<ChessPiece> = query_set
+            .p1()
+            .iter()
+            .map(|(_, p, _)| p.clone())
+            .collect::<Vec<ChessPiece>>();
+
+        if let Some((other_entity, other_piece_chess_piece, _)) =
             query_set.p1().iter().find(|(_, p, _)| p.position == *to)
         {
-            selections.second_selected_piece = Some(other_entity);
+            // Extract the data needed from other_piece_chess_piece before the mutable borrow
+            let other_piece_position = other_piece_chess_piece.position;
+            let other_piece_color = other_piece_chess_piece.color;
+            let other_piece_type = other_piece_chess_piece.piece;
+
+            if let Ok(mut moving_piece) = query_set.p0().get_mut(*piece) {
+                selections.second_selected_piece = Some(other_entity);
+
+                let pieces_refs: Vec<&ChessPiece> = pieces.iter().collect();
+                if can_move_to_tile(&moving_piece, *to, &pieces_refs, true) {
+                    if is_king_in_check(&moving_piece.color, &pieces.iter().collect::<Vec<_>>()) {
+                        let mut hypothetical_pieces = pieces.clone();
+
+                        if let Some(_p) = hypothetical_pieces.iter_mut().find(|p| {
+                            p.position == other_piece_position
+                                && p.color == other_piece_color
+                                && p.piece == other_piece_type
+                        }) {
+                            hypothetical_pieces.retain(|p| {
+                                !(p.position == other_piece_position
+                                    && p.color == other_piece_color
+                                    && p.piece == other_piece_type)
+                            });
+                        }
+
+                        //println!("Pieces: {:?}", hypothetical_pieces);
+
+                        let king_in_check = if is_king_in_check(
+                            &moving_piece.color,
+                            &hypothetical_pieces.iter().collect::<Vec<_>>(),
+                        ) {
+                            println!(
+                                "Move puts king in check, cannot move {:?} to {:?}",
+                                moving_piece, to
+                            );
+
+                            true
+                        } else {
+                            false
+                        };
+
+                        if king_in_check {
+                            return;
+                        }
+
+                        moving_piece.position = *to;
+
+                        // Also update the transform position
+                        if let Ok((_, _, mut transform)) = query_set.p1().get_mut(*piece) {
+                            let (x, y) = tile_to_screen_coord(*to);
+                            transform.translation.x = x;
+                            transform.translation.y = y;
+                        }
+
+                        selections.selected_piece = None;
+                        selections.second_selected_piece = None;
+                        selections.second_selected_tile = None;
+
+                        commands.entity(other_entity).despawn();
+                    } else {
+                        let pos_before_moved = moving_piece.position;
+
+                        println!("Attacking piece {:?} from {:?} to {:?}", piece, from, to);
+                        moving_piece.position = *to;
+
+                        let mut hypothetical_pieces = pieces.clone();
+
+                        if let Some(p) = hypothetical_pieces.iter_mut().find(|p| {
+                            p.position == pos_before_moved
+                                && p.color == moving_piece.color
+                                && p.piece == moving_piece.piece
+                        }) {
+                            p.position = *to;
+                        }
+
+                        let is_king_in_check = is_king_in_check(
+                            &moving_piece.color,
+                            &hypothetical_pieces.iter().collect::<Vec<_>>(),
+                        );
+
+                        println!("Is king in check after move? {}", is_king_in_check);
+
+                        if is_king_in_check {
+                            // If the king is in check after the move, revert the move
+                            println!("Move puts king in check, reverting.");
+                            moving_piece.position = pos_before_moved;
+
+                            // Optionally, you could notify the player or handle this case differently
+                            selections.selected_piece = None;
+                            selections.second_selected_piece = None;
+                            selections.second_selected_tile = None;
+                            continue;
+                        }
+
+                        // Also update the transform position
+                        if let Ok((_, _, mut transform)) = query_set.p1().get_mut(*piece) {
+                            let (x, y) = tile_to_screen_coord(*to);
+                            transform.translation.x = x;
+                            transform.translation.y = y;
+                        }
+
+                        selections.selected_piece = None;
+                        selections.second_selected_piece = None;
+                        selections.second_selected_tile = None;
+
+                        commands.entity(other_entity).despawn();
+                    }
+                }
+            }
         }
         // second selection is a tile
         else {
             selections.second_selected_tile = Some(*to);
 
-            // Collect the pieces first to avoid multiple mutable borrows
-            let pieces: Vec<ChessPiece> = query_set
-                .p1()
-                .iter()
-                .map(|(_, p, _)| p.clone())
-                .collect::<Vec<ChessPiece>>();
-
             // Use the first query (mutable) to try moving the piece
             if let Ok(mut moving_piece) = query_set.p0().get_mut(*piece) {
-                if can_move_to_tile(&moving_piece, *to, &pieces.iter().collect::<Vec<_>>()) {
+                if can_move_to_tile(
+                    &moving_piece,
+                    *to,
+                    &pieces.iter().collect::<Vec<_>>(),
+                    false,
+                ) {
+                    let pos_before_moved = moving_piece.position;
+
                     println!("Moving piece {:?} from {:?} to {:?}", piece, from, to);
                     moving_piece.position = *to;
+
+                    let mut hypothetical_pieces = pieces.clone();
+
+                    if let Some(p) = hypothetical_pieces.iter_mut().find(|p| {
+                        p.position == pos_before_moved
+                            && p.color == moving_piece.color
+                            && p.piece == moving_piece.piece
+                    }) {
+                        p.position = *to;
+                    }
+
+                    let is_king_in_check = is_king_in_check(
+                        &moving_piece.color,
+                        &hypothetical_pieces.iter().collect::<Vec<_>>(),
+                    );
+
+                    println!("Is king in check after move? {}", is_king_in_check);
+
+                    if is_king_in_check {
+                        // If the king is in check after the move, revert the move
+                        println!("Move puts king in check, reverting.");
+                        moving_piece.position = pos_before_moved;
+
+                        // Optionally, you could notify the player or handle this case differently
+                        selections.selected_piece = None;
+                        selections.second_selected_piece = None;
+                        selections.second_selected_tile = None;
+                        continue;
+                    }
 
                     // Also update the transform position
                     if let Ok((_, _, mut transform)) = query_set.p1().get_mut(*piece) {
@@ -131,11 +275,16 @@ pub fn move_piece(
     }
 }
 
-fn can_move_to_tile(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPiece>) -> bool {
+fn can_move_to_tile(
+    piece: &ChessPiece,
+    to_tile: (u8, u8),
+    pieces: &Vec<&ChessPiece>,
+    attacking: bool,
+) -> bool {
     let is_occupied = |pos: (u8, u8)| pieces.iter().any(|p| p.position == pos);
 
     match piece.piece {
-        PieceType::Pawn => can_pawn_move(piece, to_tile, pieces),
+        PieceType::Pawn => can_pawn_move(piece, to_tile, pieces, attacking),
         PieceType::Rook => can_rook_move(piece, to_tile, pieces, &is_occupied),
         PieceType::Bishop => can_bishop_move(piece, to_tile, pieces, &is_occupied),
         PieceType::Queen => can_queen_move(piece, to_tile, pieces, &is_occupied),
@@ -144,17 +293,43 @@ fn can_move_to_tile(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPi
     }
 }
 
-// I think I needed this once but since I now query the pieces directly
-// I don't need this anymore (I think)
-// Still keeping it here cause yk
-/*
-fn get_piece_entity_at_tile<'a>(
-    tile: &(u8, u8),
-    query: &'a Query<(Entity, &'a ChessPiece)>,
-) -> Option<(Entity, &'a ChessPiece)> {
-    query.iter().find(|(_, piece)| piece.position == *tile)
+fn is_king_in_check(color: &PieceColor, pieces: &Vec<&ChessPiece>) -> bool {
+    // 1. Find the king of the given color
+    let king = match pieces
+        .iter()
+        .find(|p| p.piece == PieceType::King && p.color == *color)
+    {
+        Some(k) => k,
+        None => return false, // No king found, can't be in check
+    };
+    let king_pos = king.position;
+
+    // 2. For each enemy piece, check if it can move to the king's position
+    for piece in pieces.iter().filter(|p| p.color != *color) {
+        let can_attack = match piece.piece {
+            PieceType::Pawn => can_pawn_move(piece, king_pos, pieces, false),
+            PieceType::Rook => can_rook_move(piece, king_pos, pieces, &|pos| {
+                pieces.iter().any(|p| p.position == pos)
+            }),
+            PieceType::Bishop => can_bishop_move(piece, king_pos, pieces, &|pos| {
+                pieces.iter().any(|p| p.position == pos)
+            }),
+            PieceType::Queen => can_queen_move(piece, king_pos, pieces, &|pos| {
+                pieces.iter().any(|p| p.position == pos)
+            }),
+            PieceType::Knight => can_knight_move(piece, king_pos, pieces),
+            PieceType::King => {
+                let dx = (king_pos.0 as i8 - piece.position.0 as i8).abs();
+                let dy = (king_pos.1 as i8 - piece.position.1 as i8).abs();
+                dx <= 1 && dy <= 1
+            }
+        };
+        if can_attack {
+            return true;
+        }
+    }
+    false
 }
-*/
 
 // well so I can get the selected tile not just the screen coordinates
 fn screen_coord_to_tile(screen_coord: (f32, f32)) -> (u8, u8) {
@@ -355,7 +530,16 @@ fn can_rook_move(
     }
 }
 
-fn can_pawn_move(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPiece>) -> bool {
+fn can_pawn_move(
+    piece: &ChessPiece,
+    to_tile: (u8, u8),
+    pieces: &Vec<&ChessPiece>,
+    attacking: bool,
+) -> bool {
+    if attacking {
+        return can_pawn_attack(piece, to_tile, pieces);
+    }
+
     let dy = to_tile.1 as i8 - piece.position.1 as i8;
     let dx = (to_tile.0 as i8 - piece.position.0 as i8).abs();
 
@@ -407,3 +591,27 @@ fn can_pawn_move(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPiece
     }
     false
 }
+
+fn can_pawn_attack(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPiece>) -> bool {
+    let dy = to_tile.1 as i8 - piece.position.1 as i8;
+    let dx = (to_tile.0 as i8 - piece.position.0 as i8).abs();
+
+    (match piece.color {
+        PieceColor::White => dy == 1 && dx == 1,
+        PieceColor::Black => dy == -1 && dx == 1,
+    }) && pieces
+        .iter()
+        .any(|p| p.position == to_tile && p.color != piece.color)
+}
+
+// I think I needed this once but since I now query the pieces directly
+// I don't need this anymore (I think)
+// Still keeping it here cause yk
+/*
+fn get_piece_entity_at_tile<'a>(
+    tile: &(u8, u8),
+    query: &'a Query<(Entity, &'a ChessPiece)>,
+) -> Option<(Entity, &'a ChessPiece)> {
+    query.iter().find(|(_, piece)| piece.position == *tile)
+}
+*/
