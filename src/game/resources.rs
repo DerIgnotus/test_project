@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use crate::pieces::components::PieceColor;
+
 pub const TILE_SIZE: f32 = 89.5;
 pub const BOARD_OFFSET: Vec2 = Vec2::new(135.0, 135.0);
 
@@ -25,4 +27,16 @@ pub struct MovePiece {
     pub piece: Entity,
     pub from: (u8, u8),
     pub to: (u8, u8),
+}
+
+#[derive(Resource, Reflect, Event)]
+pub struct MoveMade();
+
+#[derive(Resource, Reflect, Default)]
+#[reflect(Resource)]
+pub struct GameState {
+    pub turn: PieceColor,
+    pub check: bool,
+    pub checkmate: bool,
+    pub stalemate: bool,
 }

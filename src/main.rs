@@ -47,6 +47,23 @@ fn set_up_bevy(mut commands: Commands) {
         Camera2d { ..default() },
         Transform::from_xyz(450.0, 450.0, 999.0),
     ));
+
+    commands.spawn((
+        Text::new("test \ntest"),
+        TextFont {
+            font_size: 11.0,
+            ..Default::default()
+        },
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Px(110.0),
+            height: Val::Px(80.0),
+
+            top: Val::Px(5.0),
+            left: Val::Px(5.0),
+            ..default()
+        },
+    ));
 }
 
 fn update() {}

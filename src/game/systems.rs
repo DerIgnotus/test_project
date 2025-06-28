@@ -38,7 +38,13 @@ pub fn tile_clicked(
     mut selections: ResMut<Selections>,
     query: Query<(Entity, &ChessPiece)>,
     mut move_piece_events: EventWriter<MovePiece>,
+    game_state: Res<GameState>,
 ) {
+    if game_state.checkmate || game_state.stalemate {
+        println!("Game over! Cannot make any moves.");
+        return;
+    }
+
     for CurrentTile(tile) in events.read() {
         println!("Tile clicked: {:?}", tile);
 
@@ -46,6 +52,14 @@ pub fn tile_clicked(
         if selections.selected_piece.is_none() && selections.second_selected_piece.is_none() {
             if let Some((entity, _piece)) = query.iter().find(|(_, piece)| piece.position == *tile)
             {
+                if game_state.turn != _piece.color {
+                    println!(
+                        "It's not your turn! Current turn: {:?}, piece color: {:?}",
+                        game_state.turn, _piece.color
+                    );
+                    continue;
+                }
+
                 println!("Selected piece: {:?}", entity);
                 selections.selected_piece = Some(entity);
             } else {
@@ -79,6 +93,7 @@ pub fn tile_clicked(
 
 pub fn move_piece(
     mut events: EventReader<MovePiece>,
+    mut event_move_made: EventWriter<MoveMade>,
     mut selections: ResMut<Selections>,
     mut query_set: ParamSet<(
         Query<&mut ChessPiece>,
@@ -110,6 +125,14 @@ pub fn move_piece(
                 if can_move_to_tile(&moving_piece, *to, &pieces_refs, true) {
                     if is_king_in_check(&moving_piece.color, &pieces.iter().collect::<Vec<_>>()) {
                         let mut hypothetical_pieces = pieces.clone();
+
+                        if let Some(p) = hypothetical_pieces.iter_mut().find(|p| {
+                            p.position == moving_piece.position
+                                && p.color == moving_piece.color
+                                && p.piece == moving_piece.piece
+                        }) {
+                            p.position = *to;
+                        }
 
                         if let Some(_p) = hypothetical_pieces.iter_mut().find(|p| {
                             p.position == other_piece_position
@@ -157,6 +180,8 @@ pub fn move_piece(
                         selections.second_selected_tile = None;
 
                         commands.entity(other_entity).despawn();
+
+                        event_move_made.write(MoveMade {});
                     } else {
                         let pos_before_moved = moving_piece.position;
 
@@ -172,6 +197,13 @@ pub fn move_piece(
                         }) {
                             p.position = *to;
                         }
+
+                        // Remove the captured piece from hypothetical_pieces
+                        hypothetical_pieces.retain(|p| {
+                            !(p.position == other_piece_position
+                                && p.color == other_piece_color
+                                && p.piece == other_piece_type)
+                        });
 
                         let is_king_in_check = is_king_in_check(
                             &moving_piece.color,
@@ -204,6 +236,8 @@ pub fn move_piece(
                         selections.second_selected_tile = None;
 
                         commands.entity(other_entity).despawn();
+
+                        event_move_made.write(MoveMade {});
                     }
                 }
             }
@@ -264,6 +298,8 @@ pub fn move_piece(
                     selections.selected_piece = None;
                     selections.second_selected_piece = None;
                     selections.second_selected_tile = None;
+
+                    event_move_made.write(MoveMade {});
                 } else {
                     selections.second_selected_piece = None;
                     selections.second_selected_tile = None;
@@ -273,6 +309,176 @@ pub fn move_piece(
             }
         }
     }
+}
+
+pub fn move_made(
+    mut event_move_made: EventReader<MoveMade>,
+    mut game_state: ResMut<GameState>,
+    query: Query<(Entity, &ChessPiece)>,
+) {
+    for MoveMade {} in event_move_made.read() {
+        println!("Move made event triggered.");
+
+        game_state.turn = match game_state.turn {
+            PieceColor::White => PieceColor::Black,
+            PieceColor::Black => PieceColor::White,
+        };
+
+        let pieces: Vec<&ChessPiece> = query.iter().map(|(_, p)| p).collect();
+
+        if is_king_in_check(&game_state.turn, &pieces) {
+            game_state.check = true;
+
+            if has_free_squares(query, &game_state.turn)
+                || can_capture_attacker(query, &game_state.turn)
+            {
+                game_state.checkmate = false;
+            } else if !can_capture_attacker(query, &game_state.turn) {
+                game_state.checkmate = true;
+            }
+        } else {
+            game_state.check = false;
+
+            let only_king_exists = pieces
+                .iter()
+                .filter(|p| p.color == game_state.turn && p.piece != PieceType::King)
+                .count()
+                == 0;
+
+            if has_free_squares(query, &game_state.turn) {
+                game_state.stalemate = false;
+            } else if only_king_exists {
+                game_state.stalemate = true;
+            }
+        }
+    }
+}
+
+fn can_capture_attacker(pieces_query: Query<(Entity, &ChessPiece)>, color: &PieceColor) -> bool {
+    let pieces: Vec<ChessPiece> = pieces_query.iter().map(|(_, p)| p.clone()).collect();
+
+    // Get all enemy pieces
+    let enemy_pieces: Vec<ChessPiece> = pieces
+        .iter()
+        .filter(|p| p.color != *color)
+        .cloned()
+        .collect();
+
+    // Get all friendly pieces
+    let friendly_pieces: Vec<ChessPiece> = pieces
+        .iter()
+        .filter(|p| p.color == *color)
+        .cloned()
+        .collect();
+
+    // Find the king
+    let king = match pieces
+        .iter()
+        .find(|p| p.color == *color && p.piece == PieceType::King)
+    {
+        Some(k) => k,
+        None => return false,
+    };
+
+    // Identify the piece(s) attacking the king
+    let attackers: Vec<&ChessPiece> = enemy_pieces
+        .iter()
+        .filter(|enemy| can_move_to_tile(enemy, king.position, &pieces.iter().collect(), true))
+        .collect();
+
+    if attackers.is_empty() {
+        return false; // Not in check
+    }
+
+    // If multiple attackers, can't capture all in one move
+    if attackers.len() > 1 {
+        return false;
+    }
+
+    let attacker = attackers[0];
+
+    // Try capturing the attacker with any friendly piece (except the king)
+    for piece in friendly_pieces
+        .iter()
+        .filter(|p| p.piece != PieceType::King)
+    {
+        if can_move_to_tile(piece, attacker.position, &pieces.iter().collect(), false) {
+            // Simulate capture
+            let mut hypothetical_pieces = pieces.clone();
+
+            if let Some(p) = hypothetical_pieces
+                .iter_mut()
+                .find(|p| p.position == piece.position)
+            {
+                p.position = attacker.position; // move to attacker's tile
+            }
+
+            // Remove the attacker
+            hypothetical_pieces.retain(|p| p.position != attacker.position || p.color == *color);
+
+            if !is_king_in_check(color, &hypothetical_pieces.iter().collect::<Vec<_>>()) {
+                println!("Capture attacker at {:?}", attacker.position);
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn has_free_squares(pieces_query: Query<(Entity, &ChessPiece)>, color: &PieceColor) -> bool {
+    // Find all pieces of the given color
+    let pieces: Vec<ChessPiece> = pieces_query.iter().map(|(_, p)| p.clone()).collect();
+
+    // Find the king of the given color
+    let king = match pieces
+        .iter()
+        .find(|p| p.piece == PieceType::King && p.color == *color)
+    {
+        Some(k) => k,
+        None => return false, // No king found, can't have free squares
+    };
+
+    for x in 1..=8 {
+        for y in 1..=8 {
+            let to_tile = (x, y);
+
+            if let Some(target_piece) = pieces.iter().find(|p| p.position == to_tile) {
+                if target_piece.color == *color {
+                    continue;
+                }
+            }
+
+            if can_move_to_tile(king, to_tile, &pieces.iter().collect(), false) {
+                let mut hypothetical_pieces = pieces.clone();
+
+                if let Some(p) = hypothetical_pieces.iter_mut().find(|p| {
+                    p.position == king.position && p.color == king.color && p.piece == king.piece
+                }) {
+                    p.position = to_tile;
+                }
+
+                if let Some(_target_piece) = pieces.iter().find(|p| p.position == to_tile) {
+                    hypothetical_pieces.retain(|p| p.position != to_tile || p.color == *color);
+                }
+
+                //println!("Hypothetical pieces after move: {:?}", hypothetical_pieces);
+
+                let is_king_in_check =
+                    is_king_in_check(color, &hypothetical_pieces.iter().collect::<Vec<_>>());
+
+                if is_king_in_check {
+                    continue;
+                }
+
+                println!("Found free square at {:?}", to_tile);
+
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 fn can_move_to_tile(
@@ -329,6 +535,16 @@ fn is_king_in_check(color: &PieceColor, pieces: &Vec<&ChessPiece>) -> bool {
         }
     }
     false
+}
+
+pub fn update_ui(mut text_query: Query<&mut Text>, game_state: Res<GameState>) {
+    for mut text in text_query.iter_mut() {
+        *text = format!(
+            "Turn: {:?}\nCheck: {:?}\nCheckmate: {:?}\nStalemate: {:?}",
+            game_state.turn, game_state.check, game_state.checkmate, game_state.stalemate
+        )
+        .into();
+    }
 }
 
 // well so I can get the selected tile not just the screen coordinates
