@@ -94,6 +94,7 @@ pub fn tile_clicked(
 pub fn move_piece(
     mut events: EventReader<MovePiece>,
     mut event_move_made: EventWriter<MoveMade>,
+    mut castle_events: EventWriter<Castle>,
     mut selections: ResMut<Selections>,
     mut query_set: ParamSet<(
         Query<&mut ChessPiece>,
@@ -122,7 +123,7 @@ pub fn move_piece(
                 selections.second_selected_piece = Some(other_entity);
 
                 let pieces_refs: Vec<&ChessPiece> = pieces.iter().collect();
-                if can_move_to_tile(&moving_piece, *to, &pieces_refs, true) {
+                if can_move_to_tile(&moving_piece, *to, &pieces_refs, true).0 {
                     if is_king_in_check(&moving_piece.color, &pieces.iter().collect::<Vec<_>>()) {
                         let mut hypothetical_pieces = pieces.clone();
 
@@ -248,12 +249,13 @@ pub fn move_piece(
 
             // Use the first query (mutable) to try moving the piece
             if let Ok(mut moving_piece) = query_set.p0().get_mut(*piece) {
-                if can_move_to_tile(
+                let (can_move, is_castling) = can_move_to_tile(
                     &moving_piece,
                     *to,
                     &pieces.iter().collect::<Vec<_>>(),
                     false,
-                ) {
+                );
+                if can_move {
                     let pos_before_moved = moving_piece.position;
 
                     println!("Moving piece {:?} from {:?} to {:?}", piece, from, to);
@@ -286,6 +288,12 @@ pub fn move_piece(
                         selections.second_selected_piece = None;
                         selections.second_selected_tile = None;
                         continue;
+                    }
+
+                    if is_castling {
+                        castle_events.write(Castle {
+                            king_pos: moving_piece.position,
+                        });
                     }
 
                     // Also update the transform position
@@ -383,7 +391,7 @@ fn can_capture_attacker(pieces_query: Query<(Entity, &ChessPiece)>, color: &Piec
     // Identify the piece(s) attacking the king
     let attackers: Vec<&ChessPiece> = enemy_pieces
         .iter()
-        .filter(|enemy| can_move_to_tile(enemy, king.position, &pieces.iter().collect(), true))
+        .filter(|enemy| can_move_to_tile(enemy, king.position, &pieces.iter().collect(), true).0)
         .collect();
 
     if attackers.is_empty() {
@@ -402,7 +410,7 @@ fn can_capture_attacker(pieces_query: Query<(Entity, &ChessPiece)>, color: &Piec
         .iter()
         .filter(|p| p.piece != PieceType::King)
     {
-        if can_move_to_tile(piece, attacker.position, &pieces.iter().collect(), false) {
+        if can_move_to_tile(piece, attacker.position, &pieces.iter().collect(), false).0 {
             // Simulate capture
             let mut hypothetical_pieces = pieces.clone();
 
@@ -449,7 +457,7 @@ fn has_free_squares(pieces_query: Query<(Entity, &ChessPiece)>, color: &PieceCol
                 }
             }
 
-            if can_move_to_tile(king, to_tile, &pieces.iter().collect(), false) {
+            if can_move_to_tile(king, to_tile, &pieces.iter().collect(), false).0 {
                 let mut hypothetical_pieces = pieces.clone();
 
                 if let Some(p) = hypothetical_pieces.iter_mut().find(|p| {
@@ -481,20 +489,69 @@ fn has_free_squares(pieces_query: Query<(Entity, &ChessPiece)>, color: &PieceCol
     false
 }
 
+pub fn castle(
+    mut castle_event: EventReader<Castle>,
+    mut query_set: ParamSet<(
+        Query<&mut ChessPiece>,
+        Query<(Entity, &ChessPiece, &mut Transform)>,
+    )>,
+) {
+    for Castle { king_pos } in castle_event.read() {
+        // Find the king entity by its position
+        // First, collect the king's color to avoid double mutable borrow
+        let king_info = query_set
+            .p1()
+            .iter_mut()
+            .find(|(_, piece, _)| piece.position == *king_pos)
+            .map(|(king_entity, king_piece, _)| (king_entity, king_piece.color));
+
+        if let Some((_king_entity, king_color)) = king_info {
+            // Determine if this is kingside or queenside castling
+            let (rook_from, rook_to) = if king_pos.0 > 4 {
+                // Kingside castling
+                ((8, king_pos.1), (king_pos.0 - 1, king_pos.1))
+            } else {
+                // Queenside castling
+                ((1, king_pos.1), (king_pos.0 + 1, king_pos.1))
+            };
+
+            // Move the rook
+            let mut p1 = query_set.p1();
+            let mut rook_iter = p1.iter_mut();
+            let rook_info = rook_iter.find(|(_, piece, _)| {
+                piece.position == rook_from
+                    && piece.color == king_color
+                    && piece.piece == PieceType::Rook
+            });
+
+            if let Some((rook_entity, _rook_piece, _)) = rook_info {
+                if let Ok(mut rook) = query_set.p0().get_mut(rook_entity) {
+                    rook.position = rook_to;
+                }
+                if let Ok((_, _, mut transform)) = query_set.p1().get_mut(rook_entity) {
+                    let (x, y) = tile_to_screen_coord(rook_to);
+                    transform.translation.x = x;
+                    transform.translation.y = y;
+                }
+            }
+        }
+    }
+}
+
 fn can_move_to_tile(
     piece: &ChessPiece,
     to_tile: (u8, u8),
     pieces: &Vec<&ChessPiece>,
     attacking: bool,
-) -> bool {
+) -> (bool, bool) {
     let is_occupied = |pos: (u8, u8)| pieces.iter().any(|p| p.position == pos);
 
     match piece.piece {
-        PieceType::Pawn => can_pawn_move(piece, to_tile, pieces, attacking),
-        PieceType::Rook => can_rook_move(piece, to_tile, pieces, &is_occupied),
-        PieceType::Bishop => can_bishop_move(piece, to_tile, pieces, &is_occupied),
-        PieceType::Queen => can_queen_move(piece, to_tile, pieces, &is_occupied),
-        PieceType::Knight => can_knight_move(piece, to_tile, pieces),
+        PieceType::Pawn => (can_pawn_move(piece, to_tile, pieces, attacking), false),
+        PieceType::Rook => (can_rook_move(piece, to_tile, pieces, &is_occupied), false),
+        PieceType::Bishop => (can_bishop_move(piece, to_tile, pieces, &is_occupied), false),
+        PieceType::Queen => (can_queen_move(piece, to_tile, pieces, &is_occupied), false),
+        PieceType::Knight => (can_knight_move(piece, to_tile, pieces), false),
         PieceType::King => can_king_move(piece, to_tile, pieces),
     }
 }
@@ -586,17 +643,46 @@ fn tile_to_screen_coord(tile: (u8, u8)) -> (f32, f32) {
 
 // Can Moves
 
-fn can_king_move(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPiece>) -> bool {
+fn can_king_move(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPiece>) -> (bool, bool) {
     let dx = (to_tile.0 as i8 - piece.position.0 as i8).abs();
     let dy = (to_tile.1 as i8 - piece.position.1 as i8).abs();
+
+    // Normal king move
     if dx <= 1 && dy <= 1 {
         if let Some(target) = pieces.iter().find(|p| p.position == to_tile) {
-            return target.color != piece.color;
+            return (target.color != piece.color, false);
         }
-        true
-    } else {
-        false
+        return (true, false);
     }
+
+    // Castling: king moves 2 squares horizontally on the same rank
+    if dy == 0 && dx == 2 {
+        let rank = piece.position.1;
+        let kingside = to_tile.0 > piece.position.0;
+        let rook_file = if kingside { 8 } else { 1 };
+        let rook_pos = (rook_file, rank);
+
+        if let Some(_rook) = pieces.iter().find(|p| {
+            p.position == rook_pos && p.piece == PieceType::Rook && p.color == piece.color
+        }) {
+            // Check tiles between king and rook are empty
+            let range = if kingside {
+                (piece.position.0 + 1)..rook_file
+            } else {
+                (rook_file + 1)..piece.position.0
+            };
+
+            for file in range {
+                if pieces.iter().any(|p| p.position == (file, rank)) {
+                    return (false, false);
+                }
+            }
+
+            return (true, true);
+        }
+    }
+
+    (false, false)
 }
 
 fn can_knight_move(piece: &ChessPiece, to_tile: (u8, u8), pieces: &Vec<&ChessPiece>) -> bool {

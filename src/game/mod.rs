@@ -34,9 +34,17 @@ impl Plugin for GamePlugin {
             .add_event::<CurrentTile>()
             .add_event::<MovePiece>()
             .add_event::<MoveMade>()
+            .add_event::<Castle>()
             .add_systems(
                 Update,
-                (mouse_input, tile_clicked, move_piece, update_ui, move_made),
+                (
+                    mouse_input,
+                    tile_clicked,
+                    move_piece,
+                    update_ui,
+                    move_made,
+                    castle,
+                ),
             );
     }
 }

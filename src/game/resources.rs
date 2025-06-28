@@ -30,6 +30,11 @@ pub struct MovePiece {
 }
 
 #[derive(Resource, Reflect, Event)]
+pub struct Castle {
+    pub king_pos: (u8, u8),
+}
+
+#[derive(Resource, Reflect, Event)]
 pub struct MoveMade();
 
 #[derive(Resource, Reflect, Default)]
