@@ -1,0 +1,6 @@
+Chess in RUSTTTTTT
+
+so yeah don't look at the code...
+it was pretty clean until I got to a certain part...
+
+normal chess rules. can castle. top-left for information about the game
